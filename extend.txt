@@ -1,0 +1,4 @@
+Promotion Service - Discounts and promotional campaigns
+Notification Service - Push notifications and alerts
+Rating Service - Reviews and ratings management
+Admin Service - Administrative operations and analytics
