@@ -3,6 +3,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE TABLE IF NOT EXISTS farms (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name text NOT NULL,
+    address text NOT NULL DEFAULT '',
     status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'closed')),
     location geography(Point, 4326) NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now()
@@ -29,6 +30,7 @@ CREATE TABLE IF NOT EXISTS produce_offers (
     unit text NOT NULL,
     harvest_date date NOT NULL,
     ready_at timestamptz,
+    unit_price_paise integer NOT NULL DEFAULT 0 CHECK (unit_price_paise >= 0),
     quality_grade text,
     status text NOT NULL DEFAULT 'available'
         CHECK (status IN ('available', 'committed', 'unavailable')),
@@ -49,7 +51,7 @@ CREATE TABLE IF NOT EXISTS vendor_commitments (
     ready_by timestamptz NOT NULL,
     confirmed_ready_at timestamptz,
     response_note text,
-    status text NOT NULL CHECK (status IN ('requested', 'confirmed', 'shortfall', 'rejected')),
+    status text NOT NULL CHECK (status IN ('requested', 'confirmed', 'shortfall', 'rejected', 'cancelled')),
     idempotency_key text NOT NULL UNIQUE,
     request_hash text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
@@ -77,8 +79,12 @@ CREATE TABLE IF NOT EXISTS orders (
         'received', 'sourcing', 'confirmed', 'planning', 'dispatched',
         'delivered', 'cancelled', 'needs_review'
     )),
-    delivery_point geography(Point, 4326) NOT NULL,
-    delivery_window tstzrange NOT NULL,
+    delivery_point geography(Point, 4326),
+    delivery_address text NOT NULL DEFAULT '',
+    estimated_total_paise bigint,
+    estimated_delivery_minutes integer,
+    estimated_route_distance_m integer,
+    delivery_window tstzrange,
     idempotency_key text NOT NULL UNIQUE,
     request_hash text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
@@ -97,6 +103,10 @@ CREATE TABLE IF NOT EXISTS order_lines (
     allow_substitution boolean NOT NULL DEFAULT false
 );
 CREATE INDEX IF NOT EXISTS order_lines_order_idx ON order_lines (order_id);
+ALTER TABLE vendor_commitments ADD COLUMN IF NOT EXISTS order_id uuid REFERENCES orders(id) ON DELETE SET NULL;
+ALTER TABLE vendor_commitments ADD COLUMN IF NOT EXISTS order_line_id bigint REFERENCES order_lines(id) ON DELETE SET NULL;
+ALTER TABLE vendor_commitments ADD COLUMN IF NOT EXISTS offer_id uuid REFERENCES produce_offers(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS vendor_commitments_order_idx ON vendor_commitments(order_id, status);
 
 CREATE TABLE IF NOT EXISTS planning_jobs (
     id uuid PRIMARY KEY,
@@ -113,6 +123,7 @@ CREATE TABLE IF NOT EXISTS planning_jobs (
 );
 CREATE INDEX IF NOT EXISTS planning_jobs_queue_idx ON planning_jobs (created_at)
     WHERE status = 'queued';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS planning_job_id uuid REFERENCES planning_jobs(id) ON DELETE SET NULL;
 
 CREATE TABLE IF NOT EXISTS route_stops (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

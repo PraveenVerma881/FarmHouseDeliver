@@ -19,20 +19,28 @@ class OrderLineInput(BaseModel):
 
 class OrderCreate(BaseModel):
     customer_id: UUID
-    delivery_latitude: Annotated[float, Field(ge=-90, le=90)]
-    delivery_longitude: Annotated[float, Field(ge=-180, le=180)]
-    delivery_window_start: datetime
-    delivery_window_end: datetime
+    delivery_latitude: Annotated[float, Field(ge=-90, le=90)] | None = None
+    delivery_longitude: Annotated[float, Field(ge=-180, le=180)] | None = None
+    delivery_address: Annotated[str, Field(max_length=500)] | None = None
+    delivery_window_start: datetime | None = None
+    delivery_window_end: datetime | None = None
     lines: Annotated[list[OrderLineInput], Field(min_length=1, max_length=40)]
 
     @model_validator(mode="after")
     def validate_delivery_window(self) -> OrderCreate:
         start = self.delivery_window_start
         end = self.delivery_window_end
-        if start.tzinfo is None or end.tzinfo is None:
-            raise ValueError("Delivery-window timestamps must include a timezone")
-        if end <= start:
-            raise ValueError("Delivery-window end must be after its start")
+        if (self.delivery_latitude is None) != (self.delivery_longitude is None):
+            raise ValueError("Delivery latitude and longitude must be supplied together")
+        if self.delivery_latitude is None and not (self.delivery_address and self.delivery_address.strip()):
+            raise ValueError("Provide a delivery address or a location pin")
+        if (start is None) != (end is None):
+            raise ValueError("Provide both delivery-window times or neither")
+        if start is not None and end is not None:
+            if start.tzinfo is None or end.tzinfo is None:
+                raise ValueError("Delivery-window timestamps must include a timezone")
+            if end <= start:
+                raise ValueError("Delivery-window end must be after its start")
         return self
 
 

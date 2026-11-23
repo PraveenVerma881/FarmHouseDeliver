@@ -1,0 +1,12 @@
+ALTER TABLE farms ADD COLUMN IF NOT EXISTS address text NOT NULL DEFAULT '';
+ALTER TABLE produce_offers ADD COLUMN IF NOT EXISTS unit_price_paise integer NOT NULL DEFAULT 0 CHECK (unit_price_paise >= 0);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS estimated_total_paise bigint;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS estimated_delivery_minutes integer;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS estimated_route_distance_m integer;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS planning_job_id uuid REFERENCES planning_jobs(id) ON DELETE SET NULL;
+ALTER TABLE vendor_commitments ADD COLUMN IF NOT EXISTS order_id uuid REFERENCES orders(id) ON DELETE SET NULL;
+ALTER TABLE vendor_commitments ADD COLUMN IF NOT EXISTS order_line_id bigint REFERENCES order_lines(id) ON DELETE SET NULL;
+ALTER TABLE vendor_commitments ADD COLUMN IF NOT EXISTS offer_id uuid REFERENCES produce_offers(id) ON DELETE SET NULL;
+ALTER TABLE vendor_commitments DROP CONSTRAINT IF EXISTS vendor_commitments_status_check;
+ALTER TABLE vendor_commitments ADD CONSTRAINT vendor_commitments_status_check CHECK (status IN ('requested','confirmed','shortfall','rejected','cancelled'));
+CREATE INDEX IF NOT EXISTS vendor_commitments_order_idx ON vendor_commitments(order_id, status);

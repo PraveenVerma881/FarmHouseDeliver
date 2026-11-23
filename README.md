@@ -26,8 +26,25 @@ events for background work.
 - Idempotent driver accept/decline responses, persisted so accepted work informs
   future allocation fairness.
 - Idempotent driver events with an event history and current stop status.
-- A shared API key for local/prototype access. Replace it with customer, vendor,
-  driver, and operations identity/role authorization before public deployment.
+- A Python server-rendered storefront at `/ui`, styled around the supplied
+  FarmFresh reference. Visitors can browse and build a bag before signing in;
+  checkout requires a customer account. Customers can type a delivery address
+  or share a browser location pin, with delivery timing planned by operations.
+- Farmers and vendors can add produce, stock, and prices, answer automatically
+  created order commitments, and upload photos. Drivers receive complete route
+  offers, can accept or decline, view stop maps, and record delivery events.
+  Operations can review orders, demand, supply, quality, and team accounts.
+- Sourcing, route-job creation, driver pay offers, and driver reoffers run from
+  order and vendor events without pasting planning JSON. Checkout shows an
+  estimated basket price and arrival time when location and seller prices exist.
+  Address lookup requires an operator-configured `GEOCODER_URL`; road matrices
+  require an OSRM-compatible `ROUTING_BASE_URL`. Without road routing, local
+  development uses a labelled straight-line ETA estimate.
+- The first platform owner can be created at `/ui/setup` without SQL. In
+  production, configure `OWNER_SETUP_KEY` for this one-time setup. The owner can
+  add farmer, vendor, and driver accounts through the operations dashboard.
+  Configure SMTP and Twilio for actual OTP delivery outside local development.
+- Local run and account-bootstrap instructions are in [README_RUN.md](README_RUN.md).
 
 ## Run locally
 
@@ -42,9 +59,18 @@ events for background work.
   driver-allocation audit tables.
 7. Apply `migrations/003_platform_operations.sql` for quality, farm photos, and
    order lifecycle history.
-8. From this directory run `uvicorn app.main:app --reload`.
-9. In a separate process, run `python -m app.worker` to process planning jobs.
-10. Open `/docs` for the interactive API contract; `/health` checks the database.
+8. Apply `migrations/004_frontend_accounts.sql` for role accounts and login challenges.
+9. Apply `migrations/005_customer_address_and_flexible_delivery.sql` when upgrading
+   an existing database to support address-only orders and operator-planned timing.
+10. Apply `migrations/006_automatic_fulfillment.sql` for offer prices, farm
+    addresses, order estimates, and vendor-to-order links.
+11. Apply `migrations/007_vendor_role_constraint.sql` when upgrading a database
+    whose `platform_users` role constraint predates the vendor role.
+12. From this directory run `uvicorn app.main:app --reload`.
+13. In a separate process, run `python -m app.worker` to process planning jobs.
+14. Open `/ui` for the storefront, `/docs` for the API contract, and `/health` to
+    check the database. See [README_RUN.md](README_RUN.md) for account setup and
+    local OTP instructions.
 
 ## API outline
 
@@ -83,8 +109,9 @@ events for background work.
 - `PATCH /v1/vendor/commitments/{commitment_id}/response`: confirm quantity/readiness or report shortfall/rejection.
 - `POST /v1/driver/stops/{stop_id}/events`: append an idempotent driver event.
 
-All endpoints except `/health` require `X-API-Key`. Pagination and result limits
-are enforced on spatial search.
+All `/v1` endpoints except `/health` require `X-API-Key`. The `/ui` frontend uses
+signed sessions and role checks. Pagination and result limits are enforced on
+spatial search.
 
 The insights demand number is a trailing daily mean with zero-order days included;
 it is a baseline for evaluation, not a seasonal or promotion-aware forecast. Photo

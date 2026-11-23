@@ -6,12 +6,15 @@ import json
 import os
 import secrets
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 import asyncpg
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, UploadFile, File, Form, status
 from fastapi.responses import Response
+from starlette.middleware.sessions import SessionMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.db import get_connection, open_pool
@@ -44,11 +47,27 @@ app = FastAPI(
     title="Fresh Produce Fulfillment API",
     version="0.1.0",
     description=(
-        "Operational API for exact farm search, order intake, asynchronous planning, "
-        "and delivery events. Route optimization runs outside request handlers."
+        "Fresh produce operations API and Python-rendered role UI for customer, farmer, "
+        "driver, and operations workflows. Route optimization runs outside request handlers."
     ),
     lifespan=lifespan,
 )
+app.add_middleware(
+    SessionMiddleware,
+    # A stable development fallback keeps browser sessions valid through
+    # `uvicorn --reload`. Production must supply a private SESSION_SECRET.
+    secret_key=(
+        os.environ.get("SESSION_SECRET")
+        or os.environ.get("API_KEY")
+        or ("local-only-change-before-deployment-session-secret" if os.environ.get("APP_ENV", "development") != "production" else secrets.token_urlsafe(32))
+    ),
+    same_site="lax",
+    https_only=os.environ.get("APP_ENV") == "production",
+)
+from app.ui import router as ui_router
+
+app.include_router(ui_router)
+app.mount("/ui-assets", StaticFiles(directory=Path(__file__).resolve().parent.parent / "static"), name="ui-assets")
 
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
 ALLOWED_PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -203,12 +222,14 @@ async def create_order(
         inserted = await connection.fetchrow(
             """
             INSERT INTO orders (
-                id, customer_id, status, delivery_point, delivery_window,
+                id, customer_id, status, delivery_point, delivery_address, delivery_window,
                 idempotency_key, request_hash
             ) VALUES (
                 $1, $2, 'received',
-                ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography,
-                tstzrange($5, $6, '[)'), $7, $8
+                CASE WHEN $3::double precision IS NULL THEN NULL
+                     ELSE ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography END,
+                $5, CASE WHEN $6::timestamptz IS NULL THEN NULL ELSE tstzrange($6, $7, '[)') END,
+                $8, $9
             )
             ON CONFLICT (idempotency_key) DO NOTHING
             RETURNING id, status, created_at
@@ -217,6 +238,7 @@ async def create_order(
             payload.customer_id,
             payload.delivery_longitude,
             payload.delivery_latitude,
+            payload.delivery_address or "",
             payload.delivery_window_start,
             payload.delivery_window_end,
             idempotency_key,
@@ -276,7 +298,7 @@ async def create_order(
 async def get_order(order_id: UUID, connection: Connection) -> dict[str, Any]:
     order = await connection.fetchrow(
         """
-        SELECT id, customer_id, status, lower(delivery_window) AS delivery_window_start,
+        SELECT id, customer_id, status, delivery_address, lower(delivery_window) AS delivery_window_start,
                upper(delivery_window) AS delivery_window_end, created_at
         FROM orders WHERE id = $1
         """,

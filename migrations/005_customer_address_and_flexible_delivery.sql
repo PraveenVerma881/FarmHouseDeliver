@@ -1,0 +1,3 @@
+ALTER TABLE orders ALTER COLUMN delivery_point DROP NOT NULL;
+ALTER TABLE orders ALTER COLUMN delivery_window DROP NOT NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_address text NOT NULL DEFAULT '';
